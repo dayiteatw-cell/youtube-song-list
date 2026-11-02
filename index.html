@@ -682,7 +682,7 @@ function updateSearchTabCount() {
   btn.textContent = `🔍 保留 (${total.toLocaleString()})`;
   const wBtn = document.getElementById('tabWatched');
   if (wBtn) {
-    const wTotal = watchedData.filter(it => !deletedSet.has(it._k)).length;
+    const wTotal = watchedData.filter(it => !deletedSet.has(it._k) && !isItemInSearched(it)).length;
     wBtn.textContent = `📺 觀看 (${wTotal.toLocaleString()})`;
   }
 }
@@ -929,7 +929,7 @@ function applyFilter(resetPage) {
   const fc = document.getElementById('filterCodeSelect').value;
   let src;
   if (currentTab === 'watched') {
-    src = watchedData.filter(it => !deletedSet.has(it._k));
+    src = watchedData.filter(it => !deletedSet.has(it._k) && !isItemInSearched(it));
   } else if (currentTab === 'searched') {
     const addedItems = addedSearchList.map(k => itemMap.get(k)).filter(Boolean);
     const baseSearched = searchedData.filter(it => !deletedSet.has(it._k));
@@ -1009,7 +1009,7 @@ function renderTable() {
     const rawTitle = item._type === 'watched' ? item.t : item.q;
     const displaySong = item.sn || rawTitle;
     const sgText = item.sg ? `<span class="singer-name">（${escapeHtml(item.sg)}）</span>` : '';
-    const rowNo = (currentTab === 'favorites' || currentTab === 'searched') ? (start + idx + 1) : item.i;
+    const rowNo = start + idx + 1;
     rows += `<tr>
       <td>${rowNo}</td>
       <td>${formatBestCode(item.b, idx)}</td>
