@@ -1,8 +1,12 @@
 {
-  "favorites": [],
+  "favorites": [
+    "s_6",
+    "s_4",
+    "s_3"
+  ],
   "deleted": [],
   "addedSearched": [
     "w_6"
   ],
-  "updatedAt": "2026-11-02T03:49:02.028Z"
+  "updatedAt": "2026-11-02T03:50:35.948Z"
 }
