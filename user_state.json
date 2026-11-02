@@ -1,9 +1,11 @@
 {
-  "favorites": [],
+  "favorites": [
+    "w_1"
+  ],
   "deleted": [],
   "addedSearched": [
     "w_1",
     "w_6"
   ],
-  "updatedAt": "2026-11-02T03:59:23.897Z"
+  "updatedAt": "2026-11-02T03:59:36.352Z"
 }
