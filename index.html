@@ -487,10 +487,11 @@ function copySongBySliceIdx(sliceIdx, codeStr, btnEl) {
   const finalCode = codeStr !== undefined ? codeStr : (item.b || '');
   const copyContent = finalCode
     ? `${item.u}
-${songPart}
 
+${songPart}
 ${finalCode}`
     : `${item.u}
+
 ${songPart}`;
 
   copyTextToClipboard(copyContent).then(() => {
