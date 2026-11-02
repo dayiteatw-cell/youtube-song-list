@@ -610,7 +610,6 @@ function getSongIdentity(item) {
 function rebuildActiveIdentitySets() {
   activeSearchedIdentitySet = new Set();
   for (const k of addedSearchList) {
-    if (deletedSet.has(k)) continue;
     const it = itemMap.get(k);
     if (it) {
       activeSearchedIdentitySet.add(it._k);
@@ -625,7 +624,6 @@ function rebuildActiveIdentitySets() {
 
   activeFavIdentitySet = new Set();
   for (const k of favList) {
-    if (deletedSet.has(k)) continue;
     const it = itemMap.get(k);
     if (it) {
       activeFavIdentitySet.add(it._k);
@@ -651,7 +649,6 @@ function updateFavTabCount() {
   const seen = new Set();
   let activeCount = 0;
   for (const k of favList) {
-    if (deletedSet.has(k)) continue;
     const it = itemMap.get(k);
     if (!it) continue;
     const idKey = getSongIdentity(it);
@@ -669,9 +666,10 @@ function updateSearchTabCount() {
   if (!btn) return;
   const seen = new Set();
   let total = 0;
-  const allSearchItems = addedSearchList.map(k => itemMap.get(k)).filter(Boolean).concat(searchedData);
+  const allSearchItems = addedSearchList.map(k => itemMap.get(k)).filter(Boolean).concat(
+    searchedData.filter(it => !deletedSet.has(it._k))
+  );
   for (const it of allSearchItems) {
-    if (deletedSet.has(it._k)) continue;
     const idKey = getSongIdentity(it);
     if (!seen.has(idKey)) {
       seen.add(idKey);
@@ -783,10 +781,27 @@ function deleteSongBySliceIdx(sliceIdx) {
     return;
   }
 
-  if (currentTab === 'searched' && addedSearchSet.has(key)) {
-    addedSearchSet.delete(key);
-    addedSearchList = addedSearchList.filter(k => k !== key);
-    saveAddedSearch();
+  if (currentTab === 'searched') {
+    const idKey = getSongIdentity(item);
+    if (addedSearchSet.has(key) || addedSearchList.some(k => { const it = itemMap.get(k); return it && getSongIdentity(it) === idKey; })) {
+      addedSearchList = addedSearchList.filter(k => {
+        const it = itemMap.get(k);
+        return k !== key && (!it || getSongIdentity(it) !== idKey);
+      });
+      addedSearchSet = new Set(addedSearchList);
+      saveAddedSearch();
+    }
+    let deletedSearchOrig = false;
+    for (const sIt of searchedData) {
+      if (sIt._k === key || getSongIdentity(sIt) === idKey) {
+        if (!deletedSet.has(sIt._k)) {
+          deletedHistory.push(sIt._k);
+          deletedSet.add(sIt._k);
+          deletedSearchOrig = true;
+        }
+      }
+    }
+    if (deletedSearchOrig) saveDeleted();
     showToast(`🗑️ 已從保留列表移除：${songLabel}`);
     applyFilter(false);
     return;
@@ -913,17 +928,17 @@ function applyFilter(resetPage) {
   const fc = document.getElementById('filterCodeSelect').value;
   let src;
   if (currentTab === 'watched') {
-    src = watchedData;
+    src = watchedData.filter(it => !deletedSet.has(it._k));
   } else if (currentTab === 'searched') {
     const addedItems = addedSearchList.map(k => itemMap.get(k)).filter(Boolean);
-    src = addedItems.concat(searchedData);
+    const baseSearched = searchedData.filter(it => !deletedSet.has(it._k));
+    src = addedItems.concat(baseSearched);
   } else {
     src = favList.map(k => itemMap.get(k)).filter(Boolean);
   }
 
   const seenSongKeys = new Set();
   filteredData = src.filter(item => {
-    if (deletedSet.has(item._k)) return false;
     const textField = item._type === 'watched' ? item.t : item.q;
     const dedupKey = item.b ? ('code:' + item.b) : (item.sn ? ('sn:' + item.sn.toLowerCase()) : ('raw:' + textField.toLowerCase()));
     if (seenSongKeys.has(dedupKey)) return false;
