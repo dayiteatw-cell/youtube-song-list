@@ -256,6 +256,18 @@
     display: none;
   }
   .undo-btn:hover { background: #e2e8f0; }
+  .cloud-btn {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .cloud-btn:hover { background: rgba(255, 255, 255, 0.28); }
   .pagination {
     display: flex;
     justify-content: center;
@@ -279,7 +291,10 @@
 <body>
 <header>
   <h1>🎵 YouTube 歌曲清單（2026/11～03）</h1>
-  <p>編號順序：<b>1.弘音(綠) ➔ 2.金嗓(黃)</b></p>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <p>編號順序：<b>1.弘音(綠) ➔ 2.金嗓(黃)</b></p>
+    <button type="button" id="cloudSyncBtn" class="cloud-btn" onclick="onCloudBtnClick()">☁️ 雲端同步</button>
+  </div>
 </header>
 <div class="container">
   <div class="controls">
@@ -345,6 +360,10 @@ let pageSize = 500;
 let toastTimer = null;
 
 const STORAGE_KEY = 'yt_deleted_songs_v1';
+const FAV_STORAGE_KEY = 'yt_favorite_songs_v1';
+const GH_TOKEN_KEY = 'yt_gh_token_v1';
+const GH_API_URL = 'https://api.github.com/repos/dayiteatw-cell/youtube-song-list/contents/user_state.json';
+
 let deletedHistory = [];
 let deletedSet = new Set();
 try {
@@ -355,7 +374,6 @@ try {
   }
 } catch (e) {}
 
-const FAV_STORAGE_KEY = 'yt_favorite_songs_v1';
 let favList = [];
 let favSet = new Set();
 try {
@@ -366,11 +384,164 @@ try {
   }
 } catch (e) {}
 
+// Check URL hash #gh=<token> for zero-friction cloud auth setup
+let ghToken = '';
+try {
+  ghToken = localStorage.getItem(GH_TOKEN_KEY) || '';
+  if (window.location.hash && window.location.hash.startsWith('#gh=')) {
+    const t = decodeURIComponent(window.location.hash.slice(4)).trim();
+    if (t) {
+      ghToken = t;
+      localStorage.setItem(GH_TOKEN_KEY, ghToken);
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }
+} catch (e) {}
+
+let currentFileSha = '';
+let syncTimer = null;
+let isSavingCloud = false;
+let pendingSave = false;
+
+function setCloudStatus(text) {
+  const btn = document.getElementById('cloudSyncBtn');
+  if (btn) btn.textContent = text;
+}
+
+function b64EncodeUtf8(str) {
+  return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode('0x' + p1)));
+}
+
+function b64DecodeUtf8(b64) {
+  return decodeURIComponent(Array.prototype.map.call(atob(b64.replace(/\s/g, '')), c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+}
+
+async function loadFromGitHub() {
+  setCloudStatus('☁️ 讀取雲端中...');
+  try {
+    const headers = { 'Accept': 'application/vnd.github.v3+json' };
+    if (ghToken) headers['Authorization'] = `Bearer ${ghToken}`;
+    const res = await fetch(`${GH_API_URL}?t=${Date.now()}`, { headers, cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    currentFileSha = data.sha || '';
+    const parsed = JSON.parse(b64DecodeUtf8(data.content || ''));
+    const cloudFavs = Array.isArray(parsed.favorites) ? parsed.favorites.filter(k => itemMap.has(k)) : [];
+    const cloudDels = Array.isArray(parsed.deleted) ? parsed.deleted : [];
+
+    // If cloud has never been written to yet, but local browser already has favorites/deleted, push local to cloud!
+    if (!parsed.updatedAt && (favList.length > 0 || deletedHistory.length > 0) && ghToken) {
+      scheduleGitHubSave();
+      return;
+    }
+
+    if (parsed.updatedAt) {
+      favList = cloudFavs;
+      favSet = new Set(favList);
+      deletedHistory = cloudDels;
+      deletedSet = new Set(deletedHistory);
+      try {
+        localStorage.setItem(FAV_STORAGE_KEY, JSON.stringify(favList));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(deletedHistory));
+      } catch (e) {}
+      updateUndoBtn();
+      updateFavTabCount();
+      applyFilter(false);
+    }
+    setCloudStatus(ghToken ? '☁️ GitHub 雲端已同步 ✓' : '☁️ 雲端唯讀 (點此啟用寫入)');
+  } catch (err) {
+    setCloudStatus(ghToken ? '☁️ 雲端連線異常 (點此重試)' : '☁️ 點此綁定 GitHub 雲端');
+  }
+}
+
+function scheduleGitHubSave() {
+  if (!ghToken) {
+    setCloudStatus('☁️ 點此綁定 GitHub 雲端');
+    return;
+  }
+  setCloudStatus('☁️ 雲端儲存中...');
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => pushToGitHub(), 450);
+}
+
+async function pushToGitHub(retryCount = 0) {
+  if (!ghToken) return;
+  if (isSavingCloud) {
+    pendingSave = true;
+    return;
+  }
+  isSavingCloud = true;
+  pendingSave = false;
+  try {
+    if (!currentFileSha) {
+      const getRes = await fetch(`${GH_API_URL}?t=${Date.now()}`, {
+        headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Bearer ${ghToken}` },
+        cache: 'no-store'
+      });
+      if (getRes.ok) {
+        const getData = await getRes.json();
+        currentFileSha = getData.sha || '';
+      }
+    }
+    const payloadObj = {
+      favorites: favList,
+      deleted: deletedHistory,
+      updatedAt: new Date().toISOString()
+    };
+    const body = {
+      message: 'Sync user_state.json (favorites & deleted)',
+      content: b64EncodeUtf8(JSON.stringify(payloadObj, null, 2))
+    };
+    if (currentFileSha) body.sha = currentFileSha;
+
+    const putRes = await fetch(GH_API_URL, {
+      method: 'PUT',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `Bearer ${ghToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+    if (putRes.status === 409 && retryCount < 2) {
+      currentFileSha = '';
+      isSavingCloud = false;
+      return pushToGitHub(retryCount + 1);
+    }
+    if (!putRes.ok) throw new Error('HTTP ' + putRes.status);
+    const putData = await putRes.json();
+    if (putData && putData.content && putData.content.sha) {
+      currentFileSha = putData.content.sha;
+    }
+    setCloudStatus('☁️ GitHub 雲端已同步 ✓');
+  } catch (err) {
+    setCloudStatus('☁️ 雲端儲存失敗 (點此重試)');
+  } finally {
+    isSavingCloud = false;
+    if (pendingSave) pushToGitHub();
+  }
+}
+
+function onCloudBtnClick() {
+  if (ghToken) {
+    loadFromGitHub().then(() => showToast('☁️ 已從 GitHub 雲端同步最新收藏與刪除清單！'));
+  } else {
+    const input = prompt('請貼上 GitHub 雲端同步金鑰 (Token)，即可跨手機／電腦自動同步收藏與刪除紀錄：');
+    if (input && input.trim()) {
+      ghToken = input.trim();
+      try { localStorage.setItem(GH_TOKEN_KEY, ghToken); } catch (e) {}
+      loadFromGitHub().then(() => scheduleGitHubSave());
+      showToast('✅ 已綁定 GitHub 雲端同步！');
+    }
+  }
+}
+
 function saveFavorites() {
   try {
     localStorage.setItem(FAV_STORAGE_KEY, JSON.stringify(favList));
   } catch (e) {}
   updateFavTabCount();
+  scheduleGitHubSave();
 }
 
 function updateFavTabCount() {
@@ -406,6 +577,7 @@ function saveDeleted() {
   } catch (e) {}
   updateUndoBtn();
   updateFavTabCount();
+  scheduleGitHubSave();
 }
 
 function updateUndoBtn() {
@@ -632,6 +804,7 @@ function renderTable() {
 updateUndoBtn();
 updateFavTabCount();
 applyFilter(true);
+loadFromGitHub();
 </script>
 </body>
 </html>
