@@ -203,8 +203,7 @@
   }
   .fav-btn {
     display: inline-block;
-    margin-left: 5px;
-    padding: 2px 8px;
+    padding: 3px 8px;
     border: 1px solid #cbd5e1;
     background: #f8fafc;
     color: #475569;
@@ -213,6 +212,7 @@
     font-weight: 600;
     cursor: pointer;
     vertical-align: middle;
+    white-space: nowrap;
     transition: all 0.15s;
   }
   .fav-btn:hover {
@@ -224,6 +224,34 @@
     border-color: #f59e0b;
     background: #fef3c7;
     color: #b45309;
+  }
+  .add-search-btn {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 3px 8px;
+    border: 1px solid #bae6fd;
+    background: #f0f9ff;
+    color: #0369a1;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    vertical-align: middle;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .add-search-btn:hover {
+    border-color: #38bdf8;
+    background: #e0f2fe;
+    color: #075985;
+  }
+  .add-search-btn.active {
+    border-color: #38bdf8;
+    background: #e0f2fe;
+    color: #0369a1;
+  }
+  .action-cell {
+    white-space: nowrap;
   }
   .del-btn {
     display: inline-block;
@@ -361,6 +389,7 @@ let toastTimer = null;
 
 const STORAGE_KEY = 'yt_deleted_songs_v1';
 const FAV_STORAGE_KEY = 'yt_favorite_songs_v1';
+const ADDED_SEARCH_KEY = 'yt_added_search_v1';
 const GH_TOKEN_KEY = 'yt_gh_token_v1';
 const GH_API_URL = 'https://api.github.com/repos/dayiteatw-cell/youtube-song-list/contents/user_state.json';
 
@@ -381,6 +410,16 @@ try {
   if (Array.isArray(savedFav)) {
     favList = savedFav.filter(k => itemMap.has(k));
     favSet = new Set(favList);
+  }
+} catch (e) {}
+
+let addedSearchList = [];
+let addedSearchSet = new Set();
+try {
+  const savedAS = JSON.parse(localStorage.getItem(ADDED_SEARCH_KEY) || '[]');
+  if (Array.isArray(savedAS)) {
+    addedSearchList = savedAS.filter(k => itemMap.has(k));
+    addedSearchSet = new Set(addedSearchList);
   }
 } catch (e) {}
 
@@ -428,9 +467,9 @@ async function loadFromGitHub() {
     const parsed = JSON.parse(b64DecodeUtf8(data.content || ''));
     const cloudFavs = Array.isArray(parsed.favorites) ? parsed.favorites.filter(k => itemMap.has(k)) : [];
     const cloudDels = Array.isArray(parsed.deleted) ? parsed.deleted : [];
+    const cloudAS = Array.isArray(parsed.addedSearched) ? parsed.addedSearched.filter(k => itemMap.has(k)) : [];
 
-    // If cloud has never been written to yet, but local browser already has favorites/deleted, push local to cloud!
-    if (!parsed.updatedAt && (favList.length > 0 || deletedHistory.length > 0) && ghToken) {
+    if (!parsed.updatedAt && (favList.length > 0 || deletedHistory.length > 0 || addedSearchList.length > 0) && ghToken) {
       scheduleGitHubSave();
       return;
     }
@@ -440,12 +479,16 @@ async function loadFromGitHub() {
       favSet = new Set(favList);
       deletedHistory = cloudDels;
       deletedSet = new Set(deletedHistory);
+      addedSearchList = cloudAS;
+      addedSearchSet = new Set(addedSearchList);
       try {
         localStorage.setItem(FAV_STORAGE_KEY, JSON.stringify(favList));
         localStorage.setItem(STORAGE_KEY, JSON.stringify(deletedHistory));
+        localStorage.setItem(ADDED_SEARCH_KEY, JSON.stringify(addedSearchList));
       } catch (e) {}
       updateUndoBtn();
       updateFavTabCount();
+      updateSearchTabCount();
       applyFilter(false);
     }
     setCloudStatus(ghToken ? '☁️ GitHub 雲端已同步 ✓' : '☁️ 雲端唯讀 (點此啟用寫入)');
@@ -486,10 +529,11 @@ async function pushToGitHub(retryCount = 0) {
     const payloadObj = {
       favorites: favList,
       deleted: deletedHistory,
+      addedSearched: addedSearchList,
       updatedAt: new Date().toISOString()
     };
     const body = {
-      message: 'Sync user_state.json (favorites & deleted)',
+      message: 'Sync user_state.json (favorites, addedSearched & deleted)',
       content: b64EncodeUtf8(JSON.stringify(payloadObj, null, 2))
     };
     if (currentFileSha) body.sha = currentFileSha;
@@ -544,11 +588,37 @@ function saveFavorites() {
   scheduleGitHubSave();
 }
 
+function saveAddedSearch() {
+  try {
+    localStorage.setItem(ADDED_SEARCH_KEY, JSON.stringify(addedSearchList));
+  } catch (e) {}
+  updateSearchTabCount();
+  scheduleGitHubSave();
+}
+
 function updateFavTabCount() {
   const btn = document.getElementById('tabFavorites');
   if (!btn) return;
   const activeCount = favList.filter(k => !deletedSet.has(k)).length;
   btn.textContent = `⭐ 收藏夾 (${activeCount})`;
+}
+
+function updateSearchTabCount() {
+  const btn = document.getElementById('tabSearched');
+  if (!btn) return;
+  const addedActive = addedSearchList.filter(k => !deletedSet.has(k)).length;
+  const origActive = searchedData.filter(item => !deletedSet.has(item._k)).length;
+  btn.textContent = `🔍 搜尋 (${(addedActive + origActive).toLocaleString()})`;
+}
+
+function verifyDeletePassword() {
+  const pwd = prompt('請輸入刪除密碼：');
+  if (pwd === null) return false;
+  if (pwd.trim() !== '123') {
+    showToast('❌ 密碼錯誤，無法刪除！');
+    return false;
+  }
+  return true;
 }
 
 function toggleFavBySliceIdx(sliceIdx) {
@@ -558,6 +628,7 @@ function toggleFavBySliceIdx(sliceIdx) {
   const key = item._k;
   const songLabel = item.sn || (item._type === 'watched' ? item.t : item.q);
   if (favSet.has(key)) {
+    if (currentTab === 'favorites' && !verifyDeletePassword()) return;
     favSet.delete(key);
     favList = favList.filter(k => k !== key);
     saveFavorites();
@@ -571,12 +642,30 @@ function toggleFavBySliceIdx(sliceIdx) {
   applyFilter(false);
 }
 
+function addToSearchedBySliceIdx(sliceIdx) {
+  const start = (currentPage - 1) * pageSize;
+  const item = filteredData[start + sliceIdx];
+  if (!item) return;
+  const key = item._k;
+  const songLabel = item.sn || (item._type === 'watched' ? item.t : item.q);
+  if (addedSearchSet.has(key)) {
+    showToast(`ℹ️ 此歌曲已在搜尋列表中：${songLabel}`);
+    return;
+  }
+  addedSearchSet.add(key);
+  addedSearchList.unshift(key);
+  saveAddedSearch();
+  showToast(`➕ 已加入到搜尋列表：${songLabel}`);
+  applyFilter(false);
+}
+
 function saveDeleted() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(deletedHistory));
   } catch (e) {}
   updateUndoBtn();
   updateFavTabCount();
+  updateSearchTabCount();
   scheduleGitHubSave();
 }
 
@@ -596,12 +685,36 @@ function deleteSongBySliceIdx(sliceIdx) {
   const item = filteredData[start + sliceIdx];
   if (!item) return;
   const key = item._k;
+  const songLabel = item.sn || (item._type === 'watched' ? item.t : item.q);
+
+  // 搜尋與收藏夾的刪除需要密碼 123；觀看列表刪除不需要密碼
+  if (currentTab === 'searched' || currentTab === 'favorites') {
+    if (!verifyDeletePassword()) return;
+  }
+
+  if (currentTab === 'favorites') {
+    favSet.delete(key);
+    favList = favList.filter(k => k !== key);
+    saveFavorites();
+    showToast(`🗑️ 已從收藏夾刪除：${songLabel}`);
+    applyFilter(false);
+    return;
+  }
+
+  if (currentTab === 'searched' && addedSearchSet.has(key)) {
+    addedSearchSet.delete(key);
+    addedSearchList = addedSearchList.filter(k => k !== key);
+    saveAddedSearch();
+    showToast(`🗑️ 已從搜尋列表移除：${songLabel}`);
+    applyFilter(false);
+    return;
+  }
+
   if (!deletedSet.has(key)) {
     deletedHistory.push(key);
     deletedSet.add(key);
     saveDeleted();
   }
-  const songLabel = item.sn || (item._type === 'watched' ? item.t : item.q);
   showToast(`🗑️ 已刪除：${songLabel}`);
   applyFilter(false);
 }
@@ -690,9 +803,15 @@ function formatSubCode(brand, code, sliceIdx) {
   return `<button type="button" class="code-sub-btn" title="點擊複製：${escapeHtml(fullCode)}" onclick="copySongBySliceIdx(${sliceIdx}, '${escapeHtml(fullCode)}', this)">${escapeHtml(code)}</button>`;
 }
 
-function formatFavBtn(key, sliceIdx) {
+function formatActionBtns(key, sliceIdx) {
   const isFav = favSet.has(key);
-  return `<button type="button" class="fav-btn${isFav ? ' active' : ''}" onclick="toggleFavBySliceIdx(${sliceIdx})">${isFav ? '★ 已收藏' : '☆ 收藏'}</button>`;
+  const favBtn = `<button type="button" class="fav-btn${isFav ? ' active' : ''}" onclick="toggleFavBySliceIdx(${sliceIdx})">${isFav ? '★ 已收藏' : '☆ 收藏'}</button>`;
+  if (currentTab === 'watched') {
+    const isAdded = addedSearchSet.has(key);
+    const addBtn = `<button type="button" class="add-search-btn${isAdded ? ' active' : ''}" onclick="addToSearchedBySliceIdx(${sliceIdx})">${isAdded ? '✓ 已加搜尋' : '➕ 加入搜尋'}</button>`;
+    return favBtn + addBtn;
+  }
+  return favBtn;
 }
 
 function switchTab(tab) {
@@ -714,7 +833,8 @@ function applyFilter(resetPage) {
   if (currentTab === 'watched') {
     src = watchedData;
   } else if (currentTab === 'searched') {
-    src = searchedData;
+    const addedItems = addedSearchList.map(k => itemMap.get(k)).filter(Boolean);
+    src = addedItems.concat(searchedData);
   } else {
     src = favList.map(k => itemMap.get(k)).filter(Boolean);
   }
@@ -768,16 +888,18 @@ function renderTable() {
   document.getElementById('nextBtn').disabled = currentPage >= maxPage;
 
   const isSearchedTab = currentTab === 'searched';
+  const actionHeader = currentTab === 'watched' ? '收藏 / 加入搜尋' : '收藏';
+  const actionWidth = currentTab === 'watched' ? '155px' : '85px';
   const titleHeader = isSearchedTab ? '搜尋關鍵字（點擊開啟搜尋）' : 'YouTube 歌曲標題（點擊播放）';
-  const countHeader = isSearchedTab ? '搜尋次數 / 收藏 / 刪除' : '觀看次數 / 收藏 / 刪除';
+  const countHeader = isSearchedTab ? '搜尋次數 / 刪除' : '觀看次數 / 刪除';
 
-  head.innerHTML = `<tr><th style="width:50px;">序號</th><th style="width:120px;">優先編號<br><small>(點擊一鍵複製)</small></th><th style="width:155px;">比對歌名 / 歌手</th><th class="title-cell">${titleHeader}</th><th style="width:185px;">${countHeader}</th><th style="width:190px;">最後日期時間</th><th style="width:75px;">弘音</th><th style="width:75px;">金嗓</th></tr>`;
+  head.innerHTML = `<tr><th style="width:50px;">序號</th><th style="width:120px;">優先編號<br><small>(點擊一鍵複製)</small></th><th style="width:${actionWidth};">${actionHeader}</th><th style="width:155px;">比對歌名 / 歌手</th><th class="title-cell">${titleHeader}</th><th style="width:125px;">${countHeader}</th><th style="width:190px;">最後日期時間</th><th style="width:75px;">弘音</th><th style="width:75px;">金嗓</th></tr>`;
 
   if (slice.length === 0) {
     const emptyMsg = currentTab === 'favorites'
       ? '⭐ 收藏夾目前尚無歌曲，請在列表中點擊「☆ 收藏」將喜愛的歌曲加入收藏夾！'
       : '查無符合篩選條件的歌曲';
-    body.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:32px;color:#64748b;font-weight:600;">${emptyMsg}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:#64748b;font-weight:600;">${emptyMsg}</td></tr>`;
     return;
   }
 
@@ -786,13 +908,14 @@ function renderTable() {
     const item = slice[idx];
     const sgText = item.sg ? ` <small style="color:#64748b;">(${escapeHtml(item.sg)})</small>` : '';
     const rawTitle = item._type === 'watched' ? item.t : item.q;
-    const rowNo = currentTab === 'favorites' ? (start + idx + 1) : item.i;
+    const rowNo = (currentTab === 'favorites' || currentTab === 'searched') ? (start + idx + 1) : item.i;
     rows += `<tr>
       <td>${rowNo}</td>
       <td>${formatBestCode(item.b, idx)}</td>
+      <td class="action-cell">${formatActionBtns(item._k, idx)}</td>
       <td><b>${escapeHtml(item.sn)}</b>${sgText}</td>
       <td class="title-cell"><a class="yt-link" href="${item.u}" target="_blank" rel="noopener" title="${escapeHtml(rawTitle)}">${escapeHtml(rawTitle)}</a></td>
-      <td class="count-cell"><span class="badge">${item.n} 次</span>${formatFavBtn(item._k, idx)}<button type="button" class="del-btn" onclick="deleteSongBySliceIdx(${idx})">刪除</button></td>
+      <td class="count-cell"><span class="badge">${item.n} 次</span><button type="button" class="del-btn" onclick="deleteSongBySliceIdx(${idx})">刪除</button></td>
       <td style="color:#64748b;font-size:12px;">${escapeHtml(item.d)}</td>
       <td class="code-sub">${formatSubCode('弘音', item.hy, idx)}</td>
       <td class="code-sub">${formatSubCode('金嗓', item.gv, idx)}</td>
@@ -803,6 +926,7 @@ function renderTable() {
 
 updateUndoBtn();
 updateFavTabCount();
+updateSearchTabCount();
 applyFilter(true);
 loadFromGitHub();
 </script>
