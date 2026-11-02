@@ -227,7 +227,6 @@
   }
   .add-search-btn {
     display: inline-block;
-    margin-right: 4px;
     padding: 3px 8px;
     border: 1px solid #bae6fd;
     background: #f0f9ff;
@@ -901,14 +900,12 @@ function formatSubCode(brand, code, sliceIdx) {
 }
 
 function formatActionBtns(item, sliceIdx) {
-  const isFav = isItemInFav(item);
-  const favBtn = `<button type="button" class="fav-btn${isFav ? ' active' : ''}" onclick="toggleFavBySliceIdx(${sliceIdx})">${isFav ? '★ 已收藏' : '☆ 收藏'}</button>`;
   if (currentTab === 'watched') {
     const isAdded = isItemInSearched(item);
-    const addBtn = `<button type="button" class="add-search-btn${isAdded ? ' active' : ''}" onclick="addToSearchedBySliceIdx(${sliceIdx})">${isAdded ? '已在保留' : '➕ 加入保留'}</button>`;
-    return addBtn + favBtn;
+    return `<button type="button" class="add-search-btn${isAdded ? ' active' : ''}" onclick="addToSearchedBySliceIdx(${sliceIdx})">${isAdded ? '已在保留' : '➕ 加入保留'}</button>`;
   }
-  return favBtn;
+  const isFav = isItemInFav(item);
+  return `<button type="button" class="fav-btn${isFav ? ' active' : ''}" onclick="toggleFavBySliceIdx(${sliceIdx})">${isFav ? '★ 已收藏' : '☆ 收藏'}</button>`;
 }
 
 function switchTab(tab) {
@@ -990,33 +987,32 @@ function renderTable() {
   document.getElementById('nextBtn').disabled = currentPage >= maxPage;
 
   const isSearchedTab = currentTab === 'searched';
-  const actionHeader = currentTab === 'watched' ? '加入保留 / 收藏' : '收藏';
-  const actionWidth = currentTab === 'watched' ? '155px' : '85px';
-  const titleHeader = isSearchedTab ? '搜尋關鍵字（點擊開啟搜尋）' : 'YouTube 歌曲標題（點擊播放）';
+  const actionHeader = currentTab === 'watched' ? '加入保留' : '收藏';
+  const actionWidth = '95px';
   const countHeader = isSearchedTab ? '保留次數 / 刪除' : '觀看次數 / 刪除';
 
-  head.innerHTML = `<tr><th style="width:50px;">序號</th><th style="width:120px;">優先編號<br><small>(點擊一鍵複製)</small></th><th style="width:${actionWidth};">${actionHeader}</th><th style="width:155px;">比對歌名 / 歌手</th><th class="title-cell">${titleHeader}</th><th style="width:125px;">${countHeader}</th><th style="width:190px;">最後日期時間</th><th style="width:75px;">弘音</th><th style="width:75px;">金嗓</th></tr>`;
+  head.innerHTML = `<tr><th style="width:50px;">序號</th><th style="width:120px;">優先編號<br><small>(點擊一鍵複製)</small></th><th style="width:${actionWidth};">${actionHeader}</th><th class="title-cell">比對歌名 / 歌手（點擊播放）</th><th style="width:125px;">${countHeader}</th><th style="width:190px;">最後日期時間</th><th style="width:75px;">弘音</th><th style="width:75px;">金嗓</th></tr>`;
 
   if (slice.length === 0) {
     const emptyMsg = currentTab === 'favorites'
-      ? '⭐ 收藏夾目前尚無歌曲，請在列表中點擊「☆ 收藏」將喜愛的歌曲加入收藏夾！'
+      ? '⭐ 收藏夾目前尚無歌曲，請在保留列表中點擊「☆ 收藏」將喜愛的歌曲加入收藏夾！'
       : '查無符合篩選條件的歌曲';
-    body.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:#64748b;font-weight:600;">${emptyMsg}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:32px;color:#64748b;font-weight:600;">${emptyMsg}</td></tr>`;
     return;
   }
 
   let rows = '';
   for (let idx = 0; idx < slice.length; idx++) {
     const item = slice[idx];
-    const sgText = item.sg ? ` <small style="color:#64748b;">(${escapeHtml(item.sg)})</small>` : '';
     const rawTitle = item._type === 'watched' ? item.t : item.q;
+    const displaySong = item.sn || rawTitle;
+    const sgText = item.sg ? ` <small style="color:#64748b;font-weight:normal;">(${escapeHtml(item.sg)})</small>` : '';
     const rowNo = (currentTab === 'favorites' || currentTab === 'searched') ? (start + idx + 1) : item.i;
     rows += `<tr>
       <td>${rowNo}</td>
       <td>${formatBestCode(item.b, idx)}</td>
       <td class="action-cell">${formatActionBtns(item, idx)}</td>
-      <td><b>${escapeHtml(item.sn)}</b>${sgText}</td>
-      <td class="title-cell"><a class="yt-link" href="${item.u}" target="_blank" rel="noopener" title="${escapeHtml(rawTitle)}">${escapeHtml(rawTitle)}</a></td>
+      <td class="title-cell"><a class="yt-link" href="${item.u}" target="_blank" rel="noopener" title="${escapeHtml(rawTitle)}"><b>${escapeHtml(displaySong)}</b>${sgText}</a></td>
       <td class="count-cell"><span class="badge">${item.n} 次</span><button type="button" class="del-btn" onclick="deleteSongBySliceIdx(${idx})">刪除</button></td>
       <td style="color:#64748b;font-size:12px;">${escapeHtml(item.d)}</td>
       <td class="code-sub">${formatSubCode('弘音', item.hy, idx)}</td>
