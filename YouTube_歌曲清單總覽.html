@@ -704,14 +704,13 @@ function toggleFavBySliceIdx(sliceIdx) {
   const idKey = getSongIdentity(item);
   const songLabel = item.sn || (item._type === 'watched' ? item.t : item.q);
   if (isItemInFav(item)) {
-    if (currentTab === 'favorites' && !verifyDeletePassword()) return;
     favList = favList.filter(k => {
       const it = itemMap.get(k);
       return k !== key && (!it || getSongIdentity(it) !== idKey);
     });
     favSet = new Set(favList);
     saveFavorites();
-    showToast(`已從收藏夾移除：${songLabel}`);
+    showToast(`已取消收藏（保留於原本列表）：${songLabel}`);
   } else {
     favSet.add(key);
     favList.push(key);
